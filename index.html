@@ -408,6 +408,25 @@
     }
 
     .footer a { color: var(--neon-cyan); text-decoration: none; text-shadow: 0 0 10px rgba(5, 217, 232, 0.3); }
+
+    .toast {
+      position: fixed;
+      bottom: 1.5rem;
+      left: 50%;
+      transform: translateX(-50%);
+      padding: 0.6rem 1.2rem;
+      border-radius: 10px;
+      font-size: 0.8rem;
+      font-weight: 500;
+      z-index: 9999;
+      max-width: 90%;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity 0.25s ease;
+    }
+    .toast[aria-hidden="false"] { opacity: 1; }
+    .toast-ok { background: rgba(0, 255, 136, 0.2); border: 1px solid #00ff88; color: #00ff88; }
+    .toast-error { background: rgba(255, 42, 106, 0.2); border: 1px solid #ff2a6a; color: #ff8fab; }
   </style>
 </head>
 <body>
@@ -460,26 +479,59 @@
     재미로만 이용하세요 · 당첨 결과는 시뮬레이션입니다
   </footer>
 
+  <div id="toast" class="toast" aria-live="polite"></div>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
   <script>
+    function showToast(msg, isError) {
+      var el = document.getElementById('toast');
+      if (!el) return;
+      el.textContent = msg;
+      el.className = 'toast ' + (isError ? 'toast-error' : 'toast-ok');
+      el.setAttribute('aria-hidden', 'false');
+      clearTimeout(showToast._t);
+      showToast._t = setTimeout(function () {
+        el.className = 'toast';
+        el.textContent = '';
+        el.setAttribute('aria-hidden', 'true');
+      }, 4000);
+    }
+
     // Vercel 환경 변수에서 Supabase 설정 로드 (api/config)
-    const supabasePromise = fetch('/api/config')
-      .then(function (r) { return r.json(); })
+    var configUrl = (typeof window !== 'undefined' && window.location && window.location.origin)
+      ? window.location.origin + '/api/config'
+      : '/api/config';
+    const supabasePromise = fetch(configUrl)
+      .then(function (r) {
+        if (!r.ok) throw new Error('api/config ' + r.status);
+        return r.json();
+      })
       .then(function (c) {
         if (c.supabaseUrl && c.supabaseAnonKey) {
           return window.supabase.createClient(c.supabaseUrl, c.supabaseAnonKey);
         }
         return null;
       })
-      .catch(function () { return null; });
+      .catch(function (e) {
+        console.warn('Supabase 설정 로드 실패:', e);
+        return null;
+      });
 
     async function saveLottoToSupabase(numbers) {
       var client = await supabasePromise;
-      if (!client) return;
+      if (!client) {
+        showToast('DB 연결 안 됨 → Vercel 환경 변수(SUPABASE_URL, SUPABASE_ANON_KEY) 확인', true);
+        return;
+      }
       try {
         var result = await client.from('lotto_draws').insert({ numbers: numbers });
-        if (result.error) console.warn('Supabase 저장 실패:', result.error.message);
+        if (result.error) {
+          showToast('저장 실패: ' + result.error.message, true);
+          console.warn('Supabase 저장 실패:', result.error);
+        } else {
+          showToast('Supabase에 저장됨', false);
+        }
       } catch (e) {
+        showToast('저장 오류: ' + (e.message || e), true);
         console.warn('Supabase 저장 오류:', e);
       }
     }
